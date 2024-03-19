@@ -1,0 +1,93 @@
+@import "./base.scss";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+//
+// Messages
+//
+
+.message {
+  padding-inline: 1rem;
+  padding-block: 0.7rem;
+  border-color: cornflowerblue;
+  border-width: 3px;
+  border-style: solid;
+  border-radius: 5px;
+
+  width: 80%;
+
+  .message_text {
+    color: hsl(219, 79%, 26%); // cornflowerblue 40% darker
+  }
+
+  .message_ts {
+    text-align: right;
+    font-size: 0.8rem;
+    color: hsl(219, 79%, 76%); // cornflowerblue 10% lighter
+    &::before {
+      content: "at ";
+    }
+  }
+
+  &[data-type="mine"] {
+    background-color: hsl(34, 57%, 90%); // burlywood but 20% lighter
+    border-color: burlywood;
+    margin-left: auto;
+
+    .message_text {
+      text-align: right;
+      color: hsl(34, 57%, 20%); // burlywood but 50% darker;
+    }
+
+    .message_ts {
+      text-align: right;
+      font-size: 0.8rem;
+      color: burlywood;
+      &::before {
+        content: "at ";
+      }
+    }
+  }
+}
+
+//
+// Buttons
+//
+.button {
+  padding-inline: 0.7rem;
+  padding-block: 0.5rem;
+  border-color: burlywood;
+  border-width: 3px;
+  border-style: solid;
+  border-radius: 5px;
+  color: hsl(34, 57%, 20%); // burlywood but 50% darker;
+  text-decoration: none;
+  background-color: white;
+
+  &:hover {
+    background-color: hsl(34, 57%, 90%); // burlywood but 20% lighter
+  }
+
+  &[data-size="small"] {
+    padding-inline: 0.4rem;
+    padding-block: 0.2rem;
+  }
+}
+
+input {
+  padding-inline: 0.4rem;
+  padding-block: 0.2rem;
+
+  border-color: burlywood;
+  border-width: 3px;
+  border-style: solid;
+  border-radius: 5px;
+  color: hsl(34, 57%, 20%); // burlywood but 50% darker;
+
+  &:focus-visible {
+    border-color: hsl(34, 57%, 60%); // burlywood but 10% darker;
+    outline-style: none;
+  }
+}
