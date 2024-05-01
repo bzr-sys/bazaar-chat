@@ -8,8 +8,8 @@ import {
   type Doc,
   type GrantedPermission,
   type BazaarMessage,
-  BazaarError,
-  ErrorTypes,
+  isNoAppUserError,
+  isNoPermissionError,
 } from "@bzr/bazaar";
 
 import { useUsersStore } from "./users";
@@ -49,7 +49,7 @@ export const useIndividualChatsStore = defineStore("individualChats", () => {
           },
         });
       },
-    }
+    },
   );
   let individualChatsU = undefined as
     | (() => Promise<BazaarMessage>)
@@ -84,7 +84,7 @@ export const useIndividualChatsStore = defineStore("individualChats", () => {
       individualChatsU = await mirrorAll(
         {},
         individualChatsC,
-        individualChats.value
+        individualChats.value,
       ); // TODO: fetch messages
     }
 
@@ -118,7 +118,7 @@ export const useIndividualChatsStore = defineStore("individualChats", () => {
                   });
                 }
               } else {
-                const owner = await bzr.social.getUser(g.ownerId);
+                const owner = await bzr.social.getUser({ userId: g.ownerId });
                 individualChatsC.insertOne({
                   id: g.ownerId,
                   name: owner.name,
@@ -130,7 +130,7 @@ export const useIndividualChatsStore = defineStore("individualChats", () => {
                 loadOtherMessages(g.ownerId);
               }
             }
-          }
+          },
         );
         console.log("try to get chat");
         const chat = await c.getOne(usersStore.user.id);
@@ -145,7 +145,7 @@ export const useIndividualChatsStore = defineStore("individualChats", () => {
               });
             }
           } else {
-            const owner = await bzr.social.getUser(g.ownerId);
+            const owner = await bzr.social.getUser({ userId: g.ownerId });
             individualChatsC.insertOne({
               id: g.ownerId,
               name: owner.name,
@@ -194,7 +194,7 @@ export const useIndividualChatsStore = defineStore("individualChats", () => {
       MESSAGE_COLLECTION_PREFIX + usersStore.user.id,
       {
         userId: userId,
-      }
+      },
     );
 
     otherMessages.value[userId] = [];
@@ -202,13 +202,22 @@ export const useIndividualChatsStore = defineStore("individualChats", () => {
       otherMessagesUnsubscribe[userId] = await mirrorAll(
         {},
         otherMessagesCollections[userId],
-        otherMessages.value[userId]
+        otherMessages.value[userId],
       );
     } catch (e) {
+      console.log("error when mirroring");
+      console.log(e);
+      let msg = "Cannot read messages from this user";
+      if (isNoAppUserError(e)) {
+        msg = "This user is not using Bazaar Chat";
+      }
+      if (isNoPermissionError(e)) {
+        msg = "This user is not started chatting with you yet";
+      }
       otherMessages.value[userId] = [
         {
           id: "-",
-          text: "Cannot read messages from this user",
+          text: msg,
           ts: new Date(),
         },
       ];
@@ -217,7 +226,7 @@ export const useIndividualChatsStore = defineStore("individualChats", () => {
 
   async function loadChat(userId: string) {
     try {
-      const user = await bzr.social.getUser(userId);
+      const user = await bzr.social.getUser({ userId: userId });
       if (myChats.value[userId]) {
         await individualChatsC.updateOne(userId, {
           name: user.name,
@@ -247,7 +256,7 @@ export const useIndividualChatsStore = defineStore("individualChats", () => {
               });
               return;
             },
-          }
+          },
         );
       }
 
@@ -260,7 +269,7 @@ export const useIndividualChatsStore = defineStore("individualChats", () => {
       myMessagesUnsubscribe[userId] = await mirrorAll(
         {},
         myMessagesCollections[userId],
-        myMessages.value[userId]
+        myMessages.value[userId],
       );
 
       loadOtherMessages(userId);
@@ -298,14 +307,14 @@ export const useIndividualChatsStore = defineStore("individualChats", () => {
         messages.push(
           ...myMessages.value[userId].map((m) => {
             return { ...m, userId: usersStore.user.id };
-          })
+          }),
         );
       }
       if (otherMessages.value[userId]) {
         messages.push(
           ...otherMessages.value[userId].map((m) => {
             return { ...m, userId: userId };
-          })
+          }),
         );
       }
       messages.sort((a, b) => {
