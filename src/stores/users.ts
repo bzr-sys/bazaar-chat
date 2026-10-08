@@ -1,7 +1,7 @@
 import { ref } from "vue";
 import { defineStore } from "pinia";
 
-import { bzr, mirrorAll } from "@/bazaar";
+import { bzr } from "@/bazaar";
 import type { User } from "@bzr/bazaar";
 
 // const PUBLIC_BLOGS_COLLECTION_NAME = "public_blogs";

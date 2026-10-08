@@ -1,15 +1,16 @@
 import { ref, computed, type Ref } from "vue";
 import { defineStore } from "pinia";
 
-import { bzr, mirrorAll } from "@/bazaar";
+import { bzr } from "@/bazaar";
 import {
   CollectionAPI,
   PermissionType,
   type Doc,
   type GrantedPermission,
-  type BazaarMessage,
   isNoAppUserError,
   isNoPermissionError,
+  arrayMirrorSubscribeListener,
+  GranteeType,
 } from "@bzr/bazaar";
 
 import { useUsersStore } from "./users";
@@ -42,7 +43,7 @@ export const useIndividualChatsStore = defineStore("individualChats", () => {
       onCreate: async () => {
         await bzr.permissions.create({
           collectionName: INDIVIDUAL_CHATS_COLLECTION_NAME,
-          userId: "*",
+          granteeType: GranteeType.ANY,
           types: [PermissionType.READ],
           filter: {
             id: "$user",
@@ -51,9 +52,7 @@ export const useIndividualChatsStore = defineStore("individualChats", () => {
       },
     },
   );
-  let individualChatsU = undefined as
-    | (() => Promise<BazaarMessage>)
-    | undefined;
+  let individualChatsU = undefined as (() => Promise<string>) | undefined;
 
   const myChats = computed(() => {
     const map = {} as { [userId: string]: Chat };
@@ -72,19 +71,20 @@ export const useIndividualChatsStore = defineStore("individualChats", () => {
     });
   });
 
-  const otherChatsCollections = {} as { [key: string]: CollectionAPI };
+  const otherChatsCollections = {} as {
+    [key: string]: CollectionAPI<Chat>;
+  };
   const otherChatsUnsubscribe = {} as {
-    [key: string]: () => Promise<BazaarMessage>;
+    [key: string]: () => Promise<string>;
   };
   const otherChats = ref({} as { [userId: string]: Chat });
 
   async function sync(): Promise<void> {
     if (!individualChatsU) {
       individualChats.value = [];
-      individualChatsU = await mirrorAll(
+      individualChatsU = await individualChatsC.subscribeAll(
         {},
-        individualChatsC,
-        individualChats.value,
+        arrayMirrorSubscribeListener(individualChats.value),
       ); // TODO: fetch messages
     }
 
@@ -97,46 +97,13 @@ export const useIndividualChatsStore = defineStore("individualChats", () => {
           console.log("repeat chat: should not happen");
           return;
         }
-        const c = bzr.collection<Chat>(INDIVIDUAL_CHATS_COLLECTION_NAME, {
-          userId: g.ownerId,
-        });
+        const ctx = await bzr.createContext({ ownerId: g.ownerId });
+        const c = ctx.collection<Chat>(INDIVIDUAL_CHATS_COLLECTION_NAME);
         otherChatsCollections[g.ownerId] = c;
-        otherChatsUnsubscribe[g.ownerId] = await c.subscribeOne(
-          usersStore.user.id,
-          async (changes) => {
-            if (changes.newDoc) {
-              otherChats.value[g.ownerId] = changes.newDoc;
 
-              if (myChats.value[g.ownerId]) {
-                if (
-                  changes.newDoc.lastMessage >
-                  myChats.value[g.ownerId].lastMessage
-                ) {
-                  individualChatsC.updateOne(g.ownerId, {
-                    lastMessage: changes.newDoc.lastMessage,
-                    unread: true,
-                  });
-                }
-              } else {
-                const owner = await bzr.social.getUser({ userId: g.ownerId });
-                individualChatsC.insertOne({
-                  id: g.ownerId,
-                  name: owner.name,
-                  lastMessage: new Date(),
-                  unread: false,
-                });
-              }
-              if (myMessagesUnsubscribe[g.ownerId]) {
-                loadOtherMessages(g.ownerId);
-              }
-            }
-          },
-        );
-        console.log("try to get chat");
-        const chat = await c.getOne(usersStore.user.id);
-        console.log(chat);
-        if (chat) {
+        const updateFromOtherChat = async (chat: Chat) => {
           otherChats.value[g.ownerId] = chat;
+
           if (myChats.value[g.ownerId]) {
             if (chat.lastMessage > myChats.value[g.ownerId].lastMessage) {
               individualChatsC.updateOne(g.ownerId, {
@@ -153,34 +120,45 @@ export const useIndividualChatsStore = defineStore("individualChats", () => {
               unread: false,
             });
           }
-
           if (myMessagesUnsubscribe[g.ownerId]) {
             loadOtherMessages(g.ownerId);
           }
-        }
+        };
+
+        otherChatsUnsubscribe[g.ownerId] = await c.subscribeOne(
+          usersStore.user.id,
+          {
+            onInitial: updateFromOtherChat,
+            onAdd: updateFromOtherChat,
+            onChange: (_oldChat, newChat) => updateFromOtherChat(newChat),
+          },
+        );
       }
     };
 
-    await bzr.permissions.granted.subscribe({}, (changes) => {
-      if (changes.newDoc) {
-        addOtherChat(changes.newDoc);
-      }
-    });
-    const granted = await bzr.permissions.granted.list();
-    for (const g of granted) {
-      addOtherChat(g);
-    }
+    await bzr.permissions.granted.subscribe(
+      {},
+      {
+        onInitial: addOtherChat,
+        onAdd: addOtherChat,
+        onChange: (_oldGranted, newGranted) => addOtherChat(newGranted),
+      },
+    );
   }
 
-  const myMessagesCollections = {} as { [key: string]: CollectionAPI };
+  const myMessagesCollections = {} as {
+    [key: string]: CollectionAPI<ChatMessage>;
+  };
   const myMessagesUnsubscribe = {} as {
-    [key: string]: () => Promise<BazaarMessage>;
+    [key: string]: () => Promise<string>;
   };
   const myMessages = ref({} as { [key: string]: ChatMessage[] });
 
-  const otherMessagesCollections = {} as { [key: string]: CollectionAPI };
+  const otherMessagesCollections = {} as {
+    [key: string]: CollectionAPI<ChatMessage>;
+  };
   const otherMessagesUnsubscribe = {} as {
-    [key: string]: () => Promise<BazaarMessage>;
+    [key: string]: () => Promise<string>;
   };
   const otherMessages = ref({} as { [key: string]: ChatMessage[] });
 
@@ -190,19 +168,18 @@ export const useIndividualChatsStore = defineStore("individualChats", () => {
       return;
     }
 
-    otherMessagesCollections[userId] = bzr.collection(
+    const ctx = await bzr.createContext({ ownerId: userId });
+    otherMessagesCollections[userId] = ctx.collection<ChatMessage>(
       MESSAGE_COLLECTION_PREFIX + usersStore.user.id,
-      {
-        userId: userId,
-      },
     );
 
     otherMessages.value[userId] = [];
     try {
-      otherMessagesUnsubscribe[userId] = await mirrorAll(
+      otherMessagesUnsubscribe[userId] = await otherMessagesCollections[
+        userId
+      ].subscribeAll(
         {},
-        otherMessagesCollections[userId],
-        otherMessages.value[userId],
+        arrayMirrorSubscribeListener(otherMessages.value[userId]),
       );
     } catch (e) {
       console.log("error when mirroring");
@@ -245,13 +222,14 @@ export const useIndividualChatsStore = defineStore("individualChats", () => {
 
       // Add collection
       if (!(userId in myMessagesCollections)) {
-        myMessagesCollections[userId] = bzr.collection(
+        myMessagesCollections[userId] = bzr.collection<ChatMessage>(
           MESSAGE_COLLECTION_PREFIX + userId,
           {
             onCreate: async () => {
               await bzr.permissions.create({
                 collectionName: MESSAGE_COLLECTION_PREFIX + userId,
-                userId: userId,
+                granteeType: GranteeType.USER,
+                granteeId: userId,
                 types: [PermissionType.READ],
               });
               return;
@@ -266,10 +244,11 @@ export const useIndividualChatsStore = defineStore("individualChats", () => {
       }
 
       myMessages.value[userId] = [];
-      myMessagesUnsubscribe[userId] = await mirrorAll(
+      myMessagesUnsubscribe[userId] = await myMessagesCollections[
+        userId
+      ].subscribeAll(
         {},
-        myMessagesCollections[userId],
-        myMessages.value[userId],
+        arrayMirrorSubscribeListener(myMessages.value[userId]),
       );
 
       loadOtherMessages(userId);
