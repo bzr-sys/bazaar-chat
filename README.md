@@ -48,7 +48,7 @@ VITE_APP_ID=test pnpm dev
 Open http://localhost:5173/bazaar-chat/ and click **Log in with Bazaar**. In the popup:
 
 1. Enter any email address and click **Log In or Sign Up**. There is no password or code.
-2. First time only: pick a handle (at least 4 letters or digits) and a name, then click **Complete Setup**. The popup then shows the Bazaar dashboard instead of returning to the app. This is a known mock issue: close the popup and click **Log in with Bazaar** again.
+2. First time only: pick a handle (at least 4 letters or digits) and a name, then click **Complete Setup**.
 3. Click **Authorize**.
 
 To chat with yourself, open a second browser profile or a private window and sign up with a different email. Both users use the same mock server.
